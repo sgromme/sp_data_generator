@@ -1,2 +1,2 @@
 # sp_data_generator
-Cohere generate code for Supply Planning.
+Cohere generated code for Supply Planning.
