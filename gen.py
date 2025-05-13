@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # Basic usage
+
+
+
 from supply_planning_data_generator import SupplyPlanningDataGenerator
 
 # Initialize the generator (optionally with a seed for reproducibility)

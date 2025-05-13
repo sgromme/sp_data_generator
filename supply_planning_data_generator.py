@@ -5,6 +5,12 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import openai
 from typing import List, Dict, Tuple, Optional
+from dotenv import load_dotenv
+import os
+
+
+load_dotenv()
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 class SupplyPlanningDataGenerator:
     """Generate realistic supply planning data for testing optimization models."""
@@ -258,6 +264,7 @@ class SupplyPlanningDataGenerator:
         Returns:
             DataFrame with BOM data
         """
+        
         # Generate components
         num_unique_components = int(len(products_df) * 2)  # 2x components as products
         components = [f'C{i:04d}' for i in range(1, num_unique_components + 1)]
@@ -275,7 +282,7 @@ class SupplyPlanningDataGenerator:
         bom_data = []
         for _, product in products_df.iterrows():
             # Determine number of components for this product
-            num_components = np.random.randint(1, max_components + 1)
+            num_components = np.random.randint(2, max_components + 1)
             
             # Select components
             if np.random.random() < component_overlap and len(bom_data) > 0:

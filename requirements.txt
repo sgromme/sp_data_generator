@@ -3,3 +3,4 @@ numpy
 matplotlib
 openai
 python-dotenv
+openpyxl
