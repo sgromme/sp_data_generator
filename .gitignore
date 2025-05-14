@@ -5,7 +5,8 @@ __pycache__/
 
 # xls files
 *.xlsx
-
+# .csv files
+*.csv
 # C extensions
 *.so
 
