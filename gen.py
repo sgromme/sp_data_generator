@@ -19,7 +19,6 @@ dataset = generator.generate_full_dataset(
 
 for key in dataset.keys():
     key_str = str(key) + ".csv"
-    print(key_str)
     df = dataset[key]
     df.to_csv(key_str, index=True)
 # Export to Excel for easy viewing or sharing
