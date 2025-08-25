@@ -11,6 +11,7 @@ import os
 
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
+print("OpenAI API Key loaded:", openai_api_key is not None)
 
 class SupplyPlanningDataGenerator:
     """Generate realistic supply planning data for testing optimization models."""
@@ -422,6 +423,7 @@ class SupplyPlanningDataGenerator:
         """
         if not self.openai_api_key:
             # Fallback to basic naming if no API key
+            print("No API key provided, using fallback naming.")    
             names = []
             for category, count in categories.items():
                 for i in range(count):
@@ -518,23 +520,53 @@ class SupplyPlanningDataGenerator:
             'workforce': workforce_df
         }
     
-    def export_to_excel(self, dataset: Dict[str, pd.DataFrame], filename: str = 'supply_planning_data.xlsx'):
+    def export_to_excel(self, dataset: Dict[str, pd.DataFrame], filename: str = 'supply_planning_data.xlsx', working_directory:str = None):
         """
         Export the generated dataset to Excel.
         
         Args:
             dataset: Dictionary of DataFrames to export
             filename: Excel filename
+            working_directory: Directory to save the file, if None uses the current script directory
         """
-        with pd.ExcelWriter(filename) as writer:
+        # Get the directory of the current script or use the inputed 
+        # working directory
+        # and write to the same directory
+        if not working_directory:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            file_path = os.path.join(script_dir, filename)
+        else:
+            file_path = os.path.join(working_directory, filename)
+        
+        with pd.ExcelWriter(file_path) as writer:
             for sheet_name, df in dataset.items():
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+
+    def export_to_parquet(self ,dataset: Dict[str, pd.DataFrame], working_directory:str = None  ):
+        # Create parquet subfolder
+        # ,base_dir: str, excel_file: str
+        if working_directory is None:
+            working_directory = os.path.dirname(os.path.abspath(__file__))
+    
+        parquet_dir = os.path.join(working_directory, "parquet_data")
+        os.makedirs(parquet_dir, exist_ok=True)
+
+        # Convert each sheet to a separate parquet file
+        for sheet_name, df in dataset.items():
+            # Clean sheet name for filename (avoid spaces/slashes etc.)
+            safe_name = sheet_name.replace(" ", "_").replace("/", "-")
+            file_path = os.path.join(parquet_dir, f"{safe_name}.parquet")
+
+            df.to_parquet(file_path, engine="pyarrow", index=False)
+            print(f"Saved: {file_path}")
+        
 
 # Example usage
 if __name__ == "__main__":
     generator = SupplyPlanningDataGenerator(seed=42)
     dataset = generator.generate_full_dataset()
     generator.export_to_excel(dataset)
-    
+    #generator.export_to_parquet(dataset)    
     # Visualize some data
     generator.visualize_demand_patterns(dataset['demand'])
