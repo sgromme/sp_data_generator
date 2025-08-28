@@ -1,17 +1,22 @@
+from xmlrpc import client
 import pandas as pd
 import numpy as np
 import random
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-import openai
+from openai import OpenAI
+from openai import APIStatusError, APIConnectionError, RateLimitError, OpenAIError
 from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
-import os
+import os, time
 
 
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 print("OpenAI API Key loaded:", openai_api_key is not None)
+
+# Initialize OpenAI client, where should this be placed?
+client = OpenAI(api_key=openai_api_key)
 
 class SupplyPlanningDataGenerator:
     """Generate realistic supply planning data for testing optimization models."""
@@ -31,8 +36,7 @@ class SupplyPlanningDataGenerator:
             random.seed(seed)
         
         self.openai_api_key = openai_api_key
-        if openai_api_key:
-            openai.api_key = openai_api_key
+        
     
     def generate_products(self, 
                          num_products: int = 5, 
@@ -58,11 +62,27 @@ class SupplyPlanningDataGenerator:
         
         categories = list(category_distribution.keys())
         probabilities = list(category_distribution.values())
+
+        #generating product name with OpenAI , also name will be based on the category
+        categories = np.random.choice(categories, size=num_products, p=probabilities)
+
+        prompt = f"Generate {num_products} realistic and specific product names for the category: {categories}. Return just the names separated by commas, without any explanations."
+
+        # Call OpenAI API with retries
+        response = self.call_with_retries(prompt, 4, 1.0)
+        productnames = [name.strip() for name in response.split(',')]
         
+
+        # if the productnames is not the correct number product, recalculate
+        if len(productnames) != num_products:
+            print("Product names generation failed or returned incorrect number, using fallback names.")
+            productnames = [f'Product {i}' for i in range(1, num_products + 1)]
+        
+
         data = {
             'product_id': [f'P{i:04d}' for i in range(1, num_products + 1)],
-            'product_name': [f'Product {i}' for i in range(1, num_products + 1)],
-            'category': np.random.choice(categories, size=num_products, p=probabilities),
+            'product_name': productnames,
+            'category': categories,
             'unit_cost': np.round(np.random.uniform(5, 100, num_products), 2),
             'setup_cost': np.random.randint(100, 1000, num_products),
             'setup_time': np.random.randint(30, 240, num_products),
@@ -411,56 +431,142 @@ class SupplyPlanningDataGenerator:
         plt.tight_layout()
         plt.show()
         
-    def generate_realistic_product_names(self, categories: Dict[str, int]) -> List[str]:
-        """
-        Use GenAI to generate realistic product names based on categories.
+    # def generate_realistic_product_names(self, categories: Dict[str, int]) -> List[str]:
+    #     """
+    #     Use GenAI to generate realistic product names based on categories.
         
-        Args:
-            categories: Dictionary mapping category names to number of products needed
+    #     Args:
+    #         categories: Dictionary mapping category names to number of products needed
             
-        Returns:
-            List of generated product names
-        """
-        if not self.openai_api_key:
-            # Fallback to basic naming if no API key
-            print("No API key provided, using fallback naming.")    
-            names = []
-            for category, count in categories.items():
-                for i in range(count):
-                    names.append(f"{category} Product {i+1}")
-            return names
+    #     Returns:
+    #         List of generated product names
+    #     """
+    #     if not self.openai_api_key:
+    #         # Fallback to basic naming if no API key
+    #         print("No API key provided, using fallback naming.")    
+    #         names = []
+    #         for category, count in categories.items():
+    #             for i in range(count):
+    #                 names.append(f"{category} Product {i+1}")
+    #         return names
         
-        try:
-            product_names = []
+    #     try:
+    #         product_names = []
             
-            for category, count in categories.items():
-                prompt = f"Generate {count} realistic and specific product names for the category: {category}. Return just the names separated by commas, without any explanations."
+    #         for category, count in categories.items():
+    #             prompt = f"Generate {count} realistic and specific product names for the category: {category}. Return just the names separated by commas, without any explanations."
                 
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that generates realistic product names."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=200,
-                    temperature=0.7
-                )
+    #             response = openai.ChatCompletion.create(
+    #                 model="gpt-3.5-turbo",
+    #                 messages=[
+    #                     {"role": "system", "content": "You are a helpful assistant that generates realistic product names."},
+    #                     {"role": "user", "content": prompt}
+    #                 ],
+    #                 max_tokens=200,
+    #                 temperature=0.7
+    #             )
                 
-                # Extract names from response
-                names_text = response.choices[0].message.content
-                category_names = [name.strip() for name in names_text.split(',')][:count]
-                product_names.extend(category_names)
+    #             # Extract names from response
+    #             names_text = response.choices[0].message.content
+    #             category_names = [name.strip() for name in names_text.split(',')][:count]
+    #             product_names.extend(category_names)
                 
-            return product_names
+    #         return product_names
             
-        except Exception as e:
-            print(f"Error generating product names with GenAI: {e}")
-            # Fallback to basic naming
-            names = []
-            for category, count in categories.items():
-                for i in range(count):
-                    names.append(f"{category} Product {i+1}")
-            return names
+    #     except Exception as e:
+    #         print(f"Error generating product names with GenAI: {e}")
+    #         # Fallback to basic naming
+    #         names = []
+    #         for category, count in categories.items():
+    #             for i in range(count):
+    #                 names.append(f"{category} Product {i+1}")
+    #         return names
+
+    # updated to  use this version,
+    # needs updating for any errors generated
+    # def generate_realistic_product_names_2(self, categories: List[str]) -> List[str]:
+
+    #     """
+    #     Use GenAI to generate realistic product names based on categories.
+        
+    #     Args:
+    #         categories: List of categories for each product
+            
+    #     Returns:
+    #         List of ChatGPT generated product names or if fails a empty list
+    #     """
+                
+    #     try:
+    #         product_names = []
+            
+    #         #for category, count in categories.items():
+    #         prompt = f"Generate {len(categories)} realistic and specific product names for these categories: {categories}. Return just the names separated by commas, without any explanations."
+                
+    #         response = openai.ChatCompletion.create(
+    #             model="gpt-3.5-turbo",
+    #             messages=[
+    #                 {"role": "system", "content": "You are a helpful assistant that generates realistic product names."},
+    #                 {"role": "user", "content": prompt}
+    #             ],
+    #                 max_tokens=200,
+    #                 temperature=0.7
+    #             )
+                
+    #             # Extract names from response
+    #         names_text = response.choices[0].message.content
+    #         category_names = [name.strip() for name in names_text.split(',')]
+                
+    #         return category_names
+            
+    #     except Exception as e:
+    #         print(f"Error generating product names with GenAI: {e}")
+    #         # return empty list
+    #         names = []
+    #         return names
+
+    def call_with_retries(self, prompt, max_retries:Optional[int] = 4, base_delay:Optional[float] =1.0) -> str:
+        for attempt in range(max_retries):
+            try:
+                resp = client.responses.create(model="gpt-5", input=prompt)
+
+                # Prefer the unified text helper if available
+                if hasattr(resp, "output_text") and resp.output_text:
+                    return resp.output_text
+
+                # Fallbacks for other shapes (older/newer SDKs)
+                if getattr(resp, "output", None):
+                    parts = []
+                    for item in resp.output or []:
+                        for c in getattr(item, "content", []) or []:
+                            if getattr(c, "type", None) in ("output_text", "text"):
+                                parts.append(getattr(c, "text", ""))
+                    if parts:
+                        return "\n".join(parts)
+
+                if getattr(resp, "choices", None):
+                    # Legacy/chat-like shape
+                    return resp.choices[0].message.content
+
+                # If we reach here, we didn’t find text in any expected place
+                raise ValueError("No text found in response payload.")
+
+            except RateLimitError as e:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(base_delay * (2 ** attempt))
+            except APIConnectionError as e:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(base_delay * (2 ** attempt))
+            except APIStatusError as e:
+                # 4xx/5xx from the API – print and stop (usually not retryable except 429/5xx)
+                raise RuntimeError(f"API status error {e.status_code}: {e.response}") from e
+            except OpenAIError as e:
+                # Generic SDK error – surface it
+                raise RuntimeError(f"OpenAI error: {e}") from e
+
+    
+      
     
     def generate_full_dataset(self, 
                             num_products: int = 20,
@@ -568,5 +674,5 @@ if __name__ == "__main__":
     dataset = generator.generate_full_dataset()
     generator.export_to_excel(dataset)
     #generator.export_to_parquet(dataset)    
-    # Visualize some data
-    generator.visualize_demand_patterns(dataset['demand'])
+    # Visualize some data only in Jupyter
+    #generator.visualize_demand_patterns(dataset['demand'])
