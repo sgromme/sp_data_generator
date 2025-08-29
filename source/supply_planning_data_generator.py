@@ -649,6 +649,34 @@ class SupplyPlanningDataGenerator:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
 
 
+    def export_to_csv_directory(self, dataset: Dict[str, pd.DataFrame],  working_directory:str = None):
+        """
+        Export the generated dataset to a directory as csv files.
+        
+        Args:
+            dataset: Dictionary of DataFrames to export
+            working_directory: Directory to save the csv files, if None uses the current script directory
+        """
+        # Get the directory of the current script or use the inputed 
+        # working directory
+        # and write to the same directory
+        if working_directory is None:
+            working_directory = os.path.dirname(os.path.abspath(__file__))
+    
+        excel_dir = os.path.join(working_directory, "csv_data")
+        os.makedirs(excel_dir, exist_ok=True)
+
+        # Convert each sheet to a separate parquet file
+        for sheet_name, df in dataset.items():
+            # Clean sheet name for filename (avoid spaces/slashes etc.)
+            safe_name = sheet_name.replace(" ", "_").replace("/", "-")
+            file_path = os.path.join(excel_dir, f"{safe_name}.csv")
+            df.to_csv(file_path, index=False)
+            
+        
+
+
+
     def export_to_parquet(self ,dataset: Dict[str, pd.DataFrame], working_directory:str = None  ):
         # Create parquet subfolder
         # ,base_dir: str, excel_file: str
