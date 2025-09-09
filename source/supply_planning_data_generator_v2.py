@@ -87,22 +87,27 @@ class SupplyPlanningDataGenerator:
         #generating product name with OpenAI , also name will be based on the category
         categories = np.random.choice(categories, size=num_products, p=probabilities)
 
-        prompt = f"Generate {num_products} realistic and specific product names for the category: {categories}. Return just the names separated by commas, without any explanations."
+        prompt = f"Generate {num_products} realistic and specific product names and wholesale costs for the category: {categories}. Return in this format name:cost;name:cost; ...  , the cost should not have a dollar sign, and should  without any explanations."
 
         # Call OpenAI API with retries
         response = self.call_with_retries(prompt, 4, 1.0)
-        productnames = [name.strip() for name in response.split(',')]
-        
 
+        productnames_costs = [name_cost.strip() for name_cost in response.split(';')]
+
+        # Split names and costs
+        productnames = [ item.split(':')[0].strip() for item in productnames_costs]
+        productcosts = [ float(item.split(':')[1].strip()) for item in productnames_costs]
+  
         # if the productnames is not the correct number product, recalculate
-        if len(productnames) != num_products:
-            print("Product names generation failed or returned incorrect number, using fallback names.")
+        if len(productnames) != num_products| len(productcosts) != num_products:
+            print("Product names or costs generation failed or returned incorrect number, using fallback names.")
             productnames = [f'Product {i}' for i in range(1, num_products + 1)]
-        
-
+            productcosts = [np.round(np.random.uniform(5, 100, num_products), 2) for i in range(1, num_products + 1)]
+ 
         data = {
             'product_id': [f'P{i:04d}' for i in range(1, num_products + 1)],
             'product_name': productnames,
+            'product_cost': productcosts,
             'category': categories,
             'unit_cost': np.round(np.random.uniform(5, 100, num_products), 2),
             'setup_cost': np.random.randint(100, 1000, num_products),
