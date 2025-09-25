@@ -43,6 +43,18 @@ dataset = generator.generate_full_dataset()
 generator.export_to_excel(dataset, filename='supply_planning_data.xlsx', working_directory=os.getcwd())
 
 
+# Data Generator design improvements.
+# This will be a record of changes , additions and nice to have features of the data generation.
+
+TODOs:
+* DONE: Facilities capacities/inventory should be in the the same period as the demand data. 
+
+* Create a detail visual analytics of all generated data, the goal will be to have realistic data that can
+  be used for supply planning.
+
+
+
+
 
 
 

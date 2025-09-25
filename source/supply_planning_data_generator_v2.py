@@ -87,7 +87,7 @@ class SupplyPlanningDataGenerator:
         #generating product name with OpenAI , also name will be based on the category
         categories = np.random.choice(categories, size=num_products, p=probabilities)
 
-        prompt = f"Generate {num_products} realistic and specific product names and wholesale costs for the category: {categories}. Return in this format name:cost;name:cost; ...  , the cost should not have a dollar sign, and should  without any explanations."
+        prompt = f"Generate {num_products} realistic and specific product names and wholesale costs for the category: {categories}. Return in this format name:cost;name:cost; ...  , the cost should not have a dollar sign, and no explanations."
 
         # Call OpenAI API with retries
         response = self.call_with_retries(prompt, 4, 1.0)
@@ -125,8 +125,8 @@ class SupplyPlanningDataGenerator:
         data['volume_m3'] = np.round(data['weight_kg'] * np.random.uniform(0.001, 0.01, num_products), 4)
         
         return pd.DataFrame(data)
-    
-    def generate_facilities(self, num_facilities: int = 10) -> pd.DataFrame:
+
+    def generate_facilities(self, num_facilities: int = 10, frequency: str = 'D') -> pd.DataFrame:
         """
         Generate facilities with resource-specific capacities.
         - production_capacity: applies mainly to Factory
@@ -144,6 +144,14 @@ class SupplyPlanningDataGenerator:
 
         rng = np.random.default_rng(getattr(self, "random_seed", None))
 
+        # Determine periods per year based on frequency
+        if frequency == 'D':
+            periods_per_year = 365.0
+        elif frequency == 'W':
+            periods_per_year = 52.0
+        elif frequency == 'M':
+            periods_per_year = 12.0
+
         facility_types = ['Factory', 'Warehouse', 'Distribution Center']
         data = {
             'facility_id': [f'F{i:03d}' for i in range(1, num_facilities + 1)],
@@ -151,7 +159,7 @@ class SupplyPlanningDataGenerator:
             'facility_type': rng.choice(facility_types, num_facilities),
             'latitude': np.random.uniform(30, 50, num_facilities),
             'longitude': np.random.uniform(-120, -70, num_facilities),
-            'operating_cost': np.random.randint(10000, 50000, num_facilities)
+            'operating_cost': np.random.randint(10000/periods_per_year, 50000/periods_per_year  , num_facilities)
         }
         df = pd.DataFrame(data)
 
@@ -163,17 +171,17 @@ class SupplyPlanningDataGenerator:
         # Set capacities by facility type
         for i, row in df.iterrows():
             if row['facility_type'] == 'Factory':
-                df.loc[i, 'production_capacity'] = np.random.randint(1000, 5000)
-                df.loc[i, 'storage_capacity']   = np.random.randint(500, 2000)
+                df.loc[i, 'production_capacity'] = np.random.randint(1000/periods_per_year, 5000/periods_per_year)
+                df.loc[i, 'storage_capacity']   = np.random.randint(500/periods_per_year, 2000/periods_per_year)
                 df.loc[i, 'throughput_capacity'] = 0  # throughput mainly at WH/DC
             elif row['facility_type'] == 'Warehouse':
                 df.loc[i, 'production_capacity'] = 0
-                df.loc[i, 'storage_capacity']   = np.random.randint(5000, 15000)
-                df.loc[i, 'throughput_capacity'] = np.random.randint(5000, 20000)
+                df.loc[i, 'storage_capacity']   = np.random.randint(5000/periods_per_year, 15000/periods_per_year)
+                df.loc[i, 'throughput_capacity'] = np.random.randint(5000/periods_per_year, 20000/periods_per_year)
             else:  # Distribution Center
                 df.loc[i, 'production_capacity'] = 0
-                df.loc[i, 'storage_capacity']   = np.random.randint(2000, 8000)
-                df.loc[i, 'throughput_capacity'] = np.random.randint(7000, 22000)
+                df.loc[i, 'storage_capacity']   = np.random.randint(2000/periods_per_year, 8000/periods_per_year)
+                df.loc[i, 'throughput_capacity'] = np.random.randint(7000/periods_per_year, 22000/periods_per_year) 
 
         return df  
     
@@ -240,6 +248,14 @@ class SupplyPlanningDataGenerator:
         import pandas as pd
 
         rng = np.random.default_rng(getattr(self, "random_seed", None))
+
+         # Determine periods per year based on frequency
+        if frequency == 'D':
+            periods_per_year = 365.0
+        elif frequency == 'W':
+            periods_per_year = 52.0
+        elif frequency == 'M':
+            periods_per_year = 12.0
 
         # -------- 0) helpers --------
         def _periods_per(two_weeks=True) -> float:
@@ -378,7 +394,7 @@ class SupplyPlanningDataGenerator:
                 else:  # rule == 1
                     cap = int(max(1, np.ceil(1.15 * max_f)))               # > peak
 
-                facilities_df.loc[facilities_df['facility_id'] == fac, 'production_capacity'] = cap
+                facilities_df.loc[facilities_df['facility_id'] == fac, 'production_capacity'] = int(cap/periods_per_year)
 
         # -------- 4) Add initial inventory for ALL facilities (aggregate units) --------
         # Rule of thumb: WH/DC get ~ two weeks of mean period demand;
@@ -397,7 +413,7 @@ class SupplyPlanningDataGenerator:
             if ftype in wh_types:
                 mean_d = float(fac_means.get(fid, 0.0))
                 init_inv = int(max(0, round(mean_d * two_weeks_in_periods)))
-                facilities_df.at[idx, 'initial_inventory'] = init_inv
+                facilities_df.at[idx, 'initial_inventory'] = int(init_inv/periods_per_year)
 
         # b) Factory inventory from implied mean production load (based on weights)
         if factory_ids:
@@ -407,7 +423,7 @@ class SupplyPlanningDataGenerator:
                 # implied mean production per period:
                 implied_mean = float(weight_s[fid]) * float(network_period['network_period_demand'].mean())
                 init_inv = int(max(0, round(0.5 * implied_mean * two_weeks_in_periods)))
-                facilities_df.at[idx, 'initial_inventory'] = init_inv
+                facilities_df.at[idx, 'initial_inventory'] = int(init_inv/periods_per_year)
 
         # NOTE: throughput_capacity is intentionally untouched here.
 
@@ -664,7 +680,7 @@ class SupplyPlanningDataGenerator:
         products_df = self.generate_products(num_products)
         
         # Generate facilities
-        facilities_df = self.generate_facilities(num_facilities)
+        facilities_df = self.generate_facilities(num_facilities, frequency)
         
         # Generate transportation matrix
         transport_df = self.generate_transportation_matrix(facilities_df)
