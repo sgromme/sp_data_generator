@@ -108,13 +108,13 @@ class SupplyPlanningDataGenerator:
             'product_id': [f'P{i:04d}' for i in range(1, num_products + 1)],
             'product_name': productnames,
             'product_cost': productcosts,
-            'category': categories,
-            'unit_cost': np.round(np.random.uniform(5, 100, num_products), 2),
-            'setup_cost': np.random.randint(100, 1000, num_products),
-            'setup_time': np.random.randint(30, 240, num_products),
-            'production_time': np.random.randint(5, 60, num_products),
-            'min_production_qty': np.random.randint(10, 100, num_products),
-            'shelf_life_days': np.random.choice([30, 60, 90, 180, 365, 730, 1095], num_products)
+            'category': categories #,
+     #       'unit_cost': np.round(np.random.uniform(5, 100, num_products), 2),
+     #       'setup_cost': np.random.randint(100, 1000, num_products),
+     #       'setup_time': np.random.randint(30, 240, num_products),
+     #       'production_time': np.random.randint(5, 60, num_products),
+     #       'min_production_qty': np.random.randint(10, 100, num_products),
+     #       'shelf_life_days': np.random.choice([30, 60, 90, 180, 365, 730, 1095], num_products)
         }
         
         # Add realistic product weights
@@ -125,6 +125,46 @@ class SupplyPlanningDataGenerator:
         data['volume_m3'] = np.round(data['weight_kg'] * np.random.uniform(0.001, 0.01, num_products), 4)
         
         return pd.DataFrame(data)
+
+    def generate_item_loc_resource(self, products_df: pd.DataFrame, facilities_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Generate item-location-resource relationships.
+        Each product can be produced at certain factories and stored at certain warehouses.
+        
+        Returns:
+            DataFrame with item-location-resource relationships
+        """
+        # This function can be expanded based on specific requirements.
+        # Accumulate records in a list and construct a single DataFrame at the end
+        records = []
+
+        # Loop through products and facilities to create relationships
+        for _, product in products_df.iterrows():
+            for _, facility in facilities_df.iterrows():
+                if facility['facility_type'] == 'Factory':
+                    records.append({
+                        'product_id': product['product_id'],
+                        'facility_id': facility['facility_id'],
+                        'resource_type': 'Production',
+                        'throughput_rate': int(np.random.randint(100, 1000)),
+                        'lead_time': int(np.random.randint(1, 5)),
+                        'cost_per_unit': float(np.round(np.random.uniform(5, 20), 2)),
+                        'setup_cost': int(np.random.randint(100, 1000)),
+                        'setup_time': int(np.random.randint(30, 240)),
+                        'production_time': int(np.random.randint(5, 60)),
+                        'min_production_qty': int(np.random.randint(10, 100)),
+                        'safety_stock': int(np.random.randint(10, 100))
+                    })
+
+        if records:
+            df = pd.DataFrame.from_records(records)
+        else:
+            df = pd.DataFrame(columns=['product_id', 'facility_id', 'resource_type',
+                                       'throughput_rate', 'lead_time', 'cost_per_unit',
+                                       'setup_cost', 'setup_time', 'production_time',
+                                       'min_production_qty', 'safety_stock'])
+
+        return df
 
     def generate_facilities(self, num_facilities: int = 10, frequency: str = 'D') -> pd.DataFrame:
         """
@@ -154,13 +194,15 @@ class SupplyPlanningDataGenerator:
 
         facility_types = ['Factory', 'Warehouse', 'Distribution Center']
         data = {
-            'facility_id': [f'F{i:03d}' for i in range(1, num_facilities + 1)],
-            'facility_name': [f'Facility {i}' for i in range(1, num_facilities + 1)],
-            'facility_type': rng.choice(facility_types, num_facilities),
-            'latitude': np.random.uniform(30, 50, num_facilities),
-            'longitude': np.random.uniform(-120, -70, num_facilities),
-            'operating_cost': np.random.randint(10000/periods_per_year, 50000/periods_per_year  , num_facilities)
+            'facility_id': [f'F{i:03d}' for i in range(1, num_facilities + 4)],
+            'facility_name': [f'Facility {i}' for i in range(1, num_facilities + 4)],
+            'facility_type': rng.choice(facility_types, num_facilities + 3),
+            'latitude': np.random.uniform(30, 50, num_facilities + 3),
+            'longitude': np.random.uniform(-120, -70, num_facilities + 3),
+            'operating_cost': np.random.randint(10000/periods_per_year, 50000/periods_per_year  , num_facilities + 3)
         }
+
+        
         df = pd.DataFrame(data)
 
         # Initialize resource capacities
@@ -280,7 +322,8 @@ class SupplyPlanningDataGenerator:
         date_range = pd.date_range(start=start_date, periods=periods, freq=frequency)
 
         product_ids = products_df['product_id'].tolist()
-        wh_types = {'Warehouse', 'Distribution Center'}
+        # demand only at Factory 
+        wh_types = {'Factory'}
         warehouse_ids = facilities_df.loc[
             facilities_df['facility_type'].isin(wh_types), 'facility_id'
         ].tolist()
@@ -681,6 +724,9 @@ class SupplyPlanningDataGenerator:
         
         # Generate facilities
         facilities_df = self.generate_facilities(num_facilities, frequency)
+
+        # Generate item-location-resource relationships (currently empty)
+        ilr_df = self.generate_item_loc_resource(products_df, facilities_df)
         
         # Generate transportation matrix
         transport_df = self.generate_transportation_matrix(facilities_df)
@@ -709,6 +755,7 @@ class SupplyPlanningDataGenerator:
         return {
             'parameters': parameter_df,
             'products': products_df,
+            'item_location_resource': ilr_df,
             'facilities': facilities_df,
             'transportation': transport_df,
             'demand': demand_df,

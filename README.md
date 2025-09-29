@@ -47,13 +47,16 @@ generator.export_to_excel(dataset, filename='supply_planning_data.xlsx', working
 # This will be a record of changes , additions and nice to have features of the data generation.
 
 TODOs:
-* DONE: Facilities capacities/inventory should be in the the same period as the demand data. 
+* DONE: Facilities capacities/inventory should be in the the same period as the demand data.
+
+* Create demand that is assigned to a factory to be manuafactured, current assigning to any facilities, calculate a 
+percentage and randomly assign. A parameter will be added add some variance to the assignment.
+
+
+Future TODOs:
 
 * Create a detail visual analytics of all generated data, the goal will be to have realistic data that can
   be used for supply planning.
-
-
-
 
 
 
