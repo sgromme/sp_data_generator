@@ -273,7 +273,7 @@ class SupplyPlanningDataGenerator:
                          frequency: str = 'W',
                          seasonality: bool = True,
                          trend: bool = True,
-                         noise_level: float = 0.2) -> pd.DataFrame:
+                         noise_level: float = 0.2) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Generate demand at Warehouse/DC nodes and size FACTORY production_capacity
         using capacity_variation. Throughput capacity is not modified.
@@ -318,13 +318,16 @@ class SupplyPlanningDataGenerator:
                 return cv
             return rng.choice([-1, 0, 1])
 
-        # -------- 1) Demand generation at WH/DC (unchanged in spirit) --------
+        # -------- 1) Demand generation at factory --------
         date_range = pd.date_range(start=start_date, periods=periods, freq=frequency)
+
+        # Count the number of periods in the date range
+        count_date_range = len(date_range)
 
         product_ids = products_df['product_id'].tolist()
         # demand only at Factory 
         wh_types = {'Factory'}
-        warehouse_ids = facilities_df.loc[
+        factory_ids = facilities_df.loc[
             facilities_df['facility_type'].isin(wh_types), 'facility_id'
         ].tolist()
 
@@ -343,7 +346,7 @@ class SupplyPlanningDataGenerator:
             category = prow.get('category', 'General')
             base_volume = category_volumes.get(category, 100)
 
-            for fid in warehouse_ids:
+            for fid in factory_ids:
                 facility_scale = rng.uniform(0.5, 1.5)
                 base = base_volume * facility_scale
 
@@ -375,6 +378,17 @@ class SupplyPlanningDataGenerator:
             .sum()
             .rename(columns={'demand': 'period_demand'})
         )
+        # group by facility only
+        per_facility_mean = per_fac_period.groupby('facility_id', as_index=True).agg(
+            mean_period_demand=('period_demand', 'mean'),
+            max_period_demand=('period_demand', 'max'),
+            q75_period_demand=('period_demand', lambda x: x.quantile(0.75))
+        )
+        # inventories for WH/DC and Factory  
+        init_inv_whdc = int(2 * per_facility_mean['mean_period_demand'].mean())  # for WH/DC
+        init_inv_factory = int(0.5 * per_facility_mean['mean_period_demand'].mean())  # for Factory
+  
+
         network_period = (
             per_fac_period.groupby('date', as_index=False)['period_demand']
             .sum()
@@ -395,53 +409,25 @@ class SupplyPlanningDataGenerator:
         factory_ids = facilities_df.loc[factory_mask, 'facility_id'].tolist()
 
         if factory_ids:
-            # Use existing production_capacity as seed weights if available/sum>0
-            if 'production_capacity' in facilities_df.columns:
-                seed = facilities_df.loc[factory_mask, 'production_capacity'].fillna(0).astype(float).values
-            else:
-                seed = np.zeros(len(factory_ids), dtype=float)
-
-            if np.isfinite(seed).all() and seed.sum() > 0:
-                weights = seed / seed.sum()
-            else:
-                raw_w = rng.uniform(0.7, 1.3, size=len(factory_ids))
-                weights = raw_w / raw_w.sum()
-
-            weight_s = pd.Series(weights, index=factory_ids)
-
-            net_mean = float(network_period['network_period_demand'].mean())
-            net_med  = float(network_period['network_period_demand'].median())
-            net_max  = float(network_period['network_period_demand'].max())
-            net_q75  = float(network_period['network_period_demand'].quantile(0.75))
-
-            if 'production_capacity' not in facilities_df.columns:
-                facilities_df['production_capacity'] = 0
-
+            
             cv_value = capacity_variation if capacity_variation in (-1, 0, 1, 2) else 2
 
             for fac in factory_ids:
-                w = float(weight_s[fac])
-                mean_f = max(1.0, w * net_mean)
-                med_f  = max(1.0, w * net_med)
-                max_f  = max(1.0, w * net_max)
-                q75_f  = max(1.0, w * net_q75)
+                cv = cv_value if cv_value in (-1, 0, 1) else rng.choice([-1, 0, 1])
 
-                rule = _pick_rule(cv_value if cv_value != 2 else 2)
-                if rule == 2:  # random per factory
-                    rule = _pick_rule(2)
+                # set capacity per period to mean, need more logic for other cv values
+                if cv == -1:
+                    cap = per_facility_mean.loc[fac, 'mean_period_demand']
+                elif cv == 0:
+                    cap = per_facility_mean.loc[fac, 'q75_period_demand']
+                else:  # cv == 1 more capacity than peak
+                    cap  = 1.05 *per_facility_mean.loc[fac, 'max_period_demand']
 
-                if rule == -1:
-                    cap = int(max(1, np.floor(0.85 * min(med_f, q75_f))))  # below typical
-                elif rule == 0:
-                    cap = int(max(1, round(mean_f)))                        # ~mean
-                else:  # rule == 1
-                    cap = int(max(1, np.ceil(1.15 * max_f)))               # > peak
-
-                facilities_df.loc[facilities_df['facility_id'] == fac, 'production_capacity'] = int(cap/periods_per_year)
+                facilities_df.loc[facilities_df['facility_id'] == fac, 'production_capacity'] =   int(cap)
 
         # -------- 4) Add initial inventory for ALL facilities (aggregate units) --------
-        # Rule of thumb: WH/DC get ~ two weeks of mean period demand;
-        # factories get ~ 0.5 * their implied mean per-period production * two-weeks equivalent.
+        # Rule of thumb: WH/DC get ~ two of period mean demand;
+        # factories get ~ 0.5 * their mean period deman.
         two_weeks_in_periods = _periods_per(two_weeks=True)  # e.g., 2 for weekly, 14 for daily, ~0.47 for monthly
 
         # Start/ensure column
@@ -449,28 +435,25 @@ class SupplyPlanningDataGenerator:
             facilities_df['initial_inventory'] = 0
 
         # a) WH/DC inventory from their own mean period demand
-        fac_means = per_fac_period.groupby('facility_id')['period_demand'].mean()
+        
         for idx, row in facilities_df.iterrows():
             fid = row['facility_id']
             ftype = row['facility_type']
             if ftype in wh_types:
-                mean_d = float(fac_means.get(fid, 0.0))
-                init_inv = int(max(0, round(mean_d * two_weeks_in_periods)))
-                facilities_df.at[idx, 'initial_inventory'] = int(init_inv/periods_per_year)
+                
+                facilities_df.at[idx, 'initial_inventory'] = init_inv_whdc
 
-        # b) Factory inventory from implied mean production load (based on weights)
+        # b) Factory inventory from implied mean production load 
         if factory_ids:
             # reuse weights from above; if not computed (no factories), this block is skipped
             for idx, row in facilities_df.loc[factory_mask].iterrows():
                 fid = row['facility_id']
                 # implied mean production per period:
-                implied_mean = float(weight_s[fid]) * float(network_period['network_period_demand'].mean())
-                init_inv = int(max(0, round(0.5 * implied_mean * two_weeks_in_periods)))
-                facilities_df.at[idx, 'initial_inventory'] = int(init_inv/periods_per_year)
+                facilities_df.at[idx, 'initial_inventory'] = init_inv_factory
 
         # NOTE: throughput_capacity is intentionally untouched here.
 
-        return demand_df
+        return demand_df, facilities_df
     
     def generate_bill_of_materials(self, 
                                  products_df: pd.DataFrame, 
@@ -732,7 +715,7 @@ class SupplyPlanningDataGenerator:
         transport_df = self.generate_transportation_matrix(facilities_df)
         
         # Generate demand data
-        demand_df = self.generate_demand_data(
+        demand_df, facilities_df= self.generate_demand_data(
             products_df=products_df,
             facilities_df=facilities_df,
             capacity_variation=capacity_variation,
