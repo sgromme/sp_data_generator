@@ -3,7 +3,7 @@
 
 
 
-from supply_planning_data_generator_v2 import SupplyPlanningDataGenerator
+from supply_planning_data_generator_v3 import SupplyPlanningDataGenerator
 
 # Initialize the generator (optionally with a seed for reproducibility)
 generator = SupplyPlanningDataGenerator(seed=42)
